@@ -2,21 +2,21 @@
 
 :root {
   /* Colors */
-  --primary-deep: #0b112c;
-  --primary-navy: #131c46;
-  --primary-light: #202b66;
-  --accent-gold: #f59e0b;
-  --accent-gold-hover: #d97706;
-  --accent-teal: #0ea5e9;
-  --accent-teal-hover: #0284c7;
+  --primary-deep: #1d3d40;
+  --primary-navy: #256c70;
+  --primary-light: #3b767a;
+  --accent-gold: #256c70;
+  --accent-gold-hover: #1d5457;
+  --accent-teal: #3b767a;
+  --accent-teal-hover: #256c70;
   
   --bg-main: #f8fafc;
   --bg-card: #ffffff;
-  --bg-footer: #080d22;
+  --bg-footer: #0f172a;
   
   --text-dark: #0f172a;
   --text-muted: #64748b;
-  --text-light: #f8fafc;
+  --text-light: #ffffff;
   
   --border-light: #e2e8f0;
   
@@ -102,7 +102,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .btn-accent {
   background-color: var(--accent-gold);
-  color: var(--primary-deep);
+  color: var(--text-light);
 }
 
 .btn-accent:hover {
@@ -146,7 +146,7 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 24px;
-  color: var(--primary-navy);
+  color: var(--text-dark);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -154,7 +154,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .logo span {
-  color: var(--accent-teal);
+  color: var(--primary-navy);
 }
 
 .nav-links {
@@ -194,9 +194,9 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(14, 165, 233, 0.08);
+  background: rgba(37, 108, 112, 0.08);
   color: var(--accent-teal);
-  border: 1px solid rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(37, 108, 112, 0.15);
   padding: 8px 14px;
   border-radius: var(--radius-sm);
   font-family: var(--font-heading);
@@ -206,8 +206,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .location-btn:hover {
-  background: rgba(14, 165, 233, 0.15);
-  border-color: rgba(14, 165, 233, 0.3);
+  background: rgba(37, 108, 112, 0.15);
+  border-color: rgba(37, 108, 112, 0.3);
 }
 
 .phone-link {
@@ -226,7 +226,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .phone-link:hover {
   border-color: var(--primary-navy);
-  background-color: rgba(19, 28, 70, 0.02);
+  background-color: rgba(37, 108, 112, 0.02);
 }
 
 /* 2. Hero Section */
@@ -246,7 +246,7 @@ h1, h2, h3, h4, h5, h6 {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: radial-gradient(rgba(14, 165, 233, 0.15) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(37, 108, 112, 0.15) 1px, transparent 1px);
   background-size: 24px 24px;
   pointer-events: none;
 }
@@ -310,7 +310,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .search-button {
   background-color: var(--accent-gold);
-  color: var(--primary-deep);
+  color: var(--text-light);
   border: none;
   padding: 14px 28px;
   font-family: var(--font-heading);
@@ -375,14 +375,14 @@ h1, h2, h3, h4, h5, h6 {
 .specialty-card:hover {
   transform: translateY(-6px);
   border-color: var(--accent-teal);
-  box-shadow: 0 12px 20px -8px rgba(14, 165, 233, 0.2);
+  box-shadow: 0 12px 20px -8px rgba(37, 108, 112, 0.2);
 }
 
 .specialty-icon-container {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background-color: rgba(14, 165, 233, 0.06);
+  background-color: rgba(37, 108, 112, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -390,7 +390,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .specialty-card:hover .specialty-icon-container {
-  background-color: rgba(14, 165, 233, 0.12);
+  background-color: rgba(37, 108, 112, 0.12);
 }
 
 .specialty-icon {
@@ -435,13 +435,13 @@ h1, h2, h3, h4, h5, h6 {
 .service-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
-  border-color: rgba(19, 28, 70, 0.1);
+  border-color: rgba(37, 108, 112, 0.1);
 }
 
 .service-icon-box {
   width: 48px;
   height: 48px;
-  background-color: rgba(19, 28, 70, 0.05);
+  background-color: rgba(37, 108, 112, 0.05);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -695,13 +695,13 @@ h1, h2, h3, h4, h5, h6 {
 
 .city-tile:hover {
   border-color: var(--accent-teal);
-  background-color: rgba(14, 165, 233, 0.02);
+  background-color: rgba(37, 108, 112, 0.02);
   transform: translateY(-2px);
 }
 
 .city-tile-active {
   border-color: var(--accent-teal);
-  background-color: rgba(14, 165, 233, 0.06);
+  background-color: rgba(37, 108, 112, 0.06);
   font-weight: 600;
 }
 
@@ -901,7 +901,7 @@ h1, h2, h3, h4, h5, h6 {
 .specialty-row-icon-wrapper {
   width: 40px;
   height: 40px;
-  background-color: rgba(14, 165, 233, 0.05);
+  background-color: rgba(37, 108, 112, 0.05);
   border-radius: 50%;
   display: flex;
   align-items: center;

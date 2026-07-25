@@ -140,21 +140,52 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: space-between;
   height: 76px;
+  position: relative;
 }
 
-.logo {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 24px;
-  color: var(--text-dark);
+.logo-container {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   text-decoration: none;
 }
 
-.logo span {
+.logo-image-wrapper {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-text-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.logo-title {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  color: var(--text-dark);
+}
+
+.logo-title span {
   color: var(--primary-navy);
+}
+
+.logo-subtitle {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  color: rgba(37, 108, 112, 0.8);
+  margin-top: 3px;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .nav-links {
@@ -743,16 +774,49 @@ h1, h2, h3, h4, h5, h6 {
   gap: 20px;
 }
 
-.footer-logo {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 24px;
-  color: var(--text-light);
+.footer-logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   text-decoration: none;
 }
 
-.footer-logo span {
-  color: var(--accent-teal);
+.footer-logo-image-wrapper {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.footer-logo-text-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.footer-logo-title {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  color: var(--text-light);
+}
+
+.footer-logo-title span {
+  color: var(--primary-navy);
+}
+
+.footer-logo-subtitle {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 7.5px;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 3px;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .footer-brand-desc {
@@ -1018,3 +1082,259 @@ h1, h2, h3, h4, h5, h6 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   DOCTORS MEGA MENU DROPDOWN STYLING
+   ========================================================================== */
+
+.nav-item.has-mega-menu {
+  position: static;
+}
+
+.nav-links {
+  position: static;
+}
+
+.mega-menu {
+  position: absolute;
+  top: 100%;
+  left: 20px;
+  right: 20px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  padding: 32px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(12px);
+  transition: all var(--transition-normal);
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+.nav-item:hover .mega-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.mega-menu-content {
+  display: flex;
+  gap: 40px;
+  width: 100%;
+}
+
+.mega-menu-left {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+  border-right: 1px solid var(--border-light);
+  padding-right: 40px;
+}
+
+.mega-menu-heading {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 24px;
+  color: var(--text-dark);
+  line-height: 1.25;
+}
+
+.mega-menu-btn {
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background-color: var(--bg-card);
+  color: var(--text-dark);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.mega-menu-btn:hover {
+  border-color: var(--primary-navy);
+  color: var(--primary-navy);
+  background-color: rgba(37, 108, 112, 0.03);
+  transform: translateY(-1px);
+}
+
+.mega-menu-grid {
+  flex-grow: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.mega-menu-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.mega-menu-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-navy);
+  box-shadow: var(--shadow-sm);
+}
+
+.mega-menu-icon-container {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: rgba(37, 108, 112, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-navy);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.mega-menu-card:hover .mega-menu-icon-container {
+  background-color: rgba(37, 108, 112, 0.12);
+}
+
+.mega-menu-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.mega-menu-name {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-dark);
+}
+
+/* Ensure dropdown does not render on small screens */
+@media (max-width: 768px) {
+  .mega-menu {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   JOIN AS A DOCTOR SECTION
+   ========================================================================== */
+
+.join-doctor-section {
+  padding: 80px 0;
+  background-color: var(--bg-card);
+  border-top: 1px solid var(--border-light);
+}
+
+.join-doctor-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 60px;
+}
+
+.join-doctor-image {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.join-doctor-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.join-doctor-title {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 36px;
+  color: var(--primary-deep);
+  line-height: 1.2;
+}
+
+.join-doctor-subtitle {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+}
+
+.join-doctor-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.join-doctor-bullets li {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-dark);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bullet-arrow {
+  color: var(--primary-navy);
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.join-doctor-btn {
+  padding: 14px 32px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: var(--shadow-md);
+  background-color: #f59e0b;
+  color: #ffffff !important;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.join-doctor-btn:hover {
+  background-color: #d97706;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Responsiveness for Join as Doctor section */
+@media (max-width: 768px) {
+  .join-doctor-container {
+    flex-direction: column;
+    text-align: center;
+    gap: 40px;
+  }
+  .join-doctor-info {
+    align-items: center;
+  }
+  .join-doctor-title {
+    font-size: 28px;
+  }
+  .join-doctor-bullets li {
+    justify-content: center;
+  }
+}
+

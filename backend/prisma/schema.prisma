@@ -1,0 +1,1603 @@
+// Sehatdoc — scalable PostgreSQL schema (Prisma)
+// Marketplace: free doctor onboarding + verification · hospitals · labs · online consults
+//
+// v1 product scope (locked):
+// - Family booking: YES (patient_dependents)
+// - Chat / pharmacy / insurance / gateway APIs: NOT in v1
+// - Payments v1: CASH or MANUAL_TRANSFER (show account → patient pays → upload screenshot proof)
+// - Commission / wallets / payouts: tables kept for later; not used in v1 booking flow
+//
+// Scale notes:
+// - Soft deletes (deleted_at) on public entities — never hard-delete booked history
+// - Fee snapshots on every order line — never re-read live prices after booking
+// - Payment holds via appointments.payment_expires_at + status EXPIRED
+// - Partial unique slot index is in prisma/migrations/manual/partial_indexes.sql
+// - Heavy tables indexed for time-range queries; safe to partition later by created_at
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum AppRole {
+  PATIENT
+  DOCTOR
+  HOSPITAL_ADMIN
+  LAB_ADMIN
+  PLATFORM_ADMIN
+  SUPPORT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum VerificationStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum HospitalType {
+  HOSPITAL
+  CLINIC
+  MEDICAL_CENTER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  VISITING
+  CONSULTANT
+}
+
+enum OrgAdminRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum AvailabilityMode {
+  ONLINE
+  CLINIC
+  BOTH
+}
+
+enum AppointmentMode {
+  ONLINE
+  IN_PERSON
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  EXPIRED // payment hold timed out
+  RESCHEDULED
+}
+
+/// Opt-in SehtDesk sync status (marketplace booking never depends on Desk)
+enum DeskSyncStatus {
+  NOT_LINKED
+  PENDING
+  SYNCED
+  FAILED
+  SKIPPED
+}
+
+enum CancelledBy {
+  PATIENT
+  DOCTOR
+  SYSTEM
+  ADMIN
+}
+
+enum ConsultationStatus {
+  WAITING
+  LIVE
+  ENDED
+  FAILED
+}
+
+enum VideoProvider {
+  AGORA
+  TWILIO
+  DAILY
+  CUSTOM
+}
+
+enum CollectionType {
+  HOME
+  WALK_IN
+}
+
+enum LabOrderStatus {
+  PENDING_PAYMENT
+  BOOKED
+  SAMPLE_COLLECTED
+  PROCESSING
+  REPORTED
+  CANCELLED
+  EXPIRED
+}
+
+enum PayableType {
+  APPOINTMENT
+  LAB_ORDER
+}
+
+/// How the patient settles in v1 (+ future gateway hooks)
+enum PaymentMethod {
+  CASH // pay at clinic / on visit / collect later
+  MANUAL_TRANSFER // platform account shown; patient uploads screenshot
+  // ── future (not wired in v1) ──
+  JAZZCASH
+  EASYPAISA
+  CARD
+  WALLET
+}
+
+enum PaymentAccountChannel {
+  BANK
+  JAZZCASH
+  EASYPAISA
+  OTHER
+}
+
+enum PaymentStatus {
+  INITIATED
+  AWAITING_PROOF // MANUAL_TRANSFER: waiting for screenshot
+  PENDING_VERIFICATION // screenshot uploaded; admin/staff review
+  PAID // verified OR cash accepted
+  PROOF_REJECTED // ask patient to re-upload
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIAL_REFUND
+}
+
+enum PaymentProofStatus {
+  UPLOADED
+  APPROVED
+  REJECTED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum LedgerEntryType {
+  CONSULTATION_EARNING
+  LAB_EARNING
+  PLATFORM_COMMISSION
+  PAYOUT
+  REFUND
+  ADJUSTMENT
+  PROMO_SUBSIDY
+}
+
+enum LedgerOwnerType {
+  DOCTOR
+  HOSPITAL
+  LAB
+  PLATFORM
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  JAZZCASH
+  EASYPAISA
+}
+
+enum ReviewTargetType {
+  DOCTOR
+  HOSPITAL
+  LAB
+}
+
+enum ReviewStatus {
+  PUBLISHED
+  HIDDEN
+  FLAGGED
+}
+
+enum DocumentType {
+  PMC_CERTIFICATE
+  CNIC_FRONT
+  CNIC_BACK
+  DEGREE
+  EXPERIENCE_LETTER
+  HOSPITAL_LICENSE
+  LAB_LICENSE
+  OTHER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum MediaPurpose {
+  AVATAR
+  DOCUMENT
+  REPORT
+  PRESCRIPTION_PDF
+  OTHER
+}
+
+enum NotificationChannel {
+  SMS
+  PUSH
+  EMAIL
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum SampleType {
+  BLOOD
+  URINE
+  STOOL
+  SWAB
+  IMAGING
+  OTHER
+}
+
+enum DependentRelation {
+  SELF
+  SPOUSE
+  CHILD
+  PARENT
+  SIBLING
+  OTHER
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+enum CouponAppliesTo {
+  ALL
+  APPOINTMENT
+  LAB_ORDER
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+enum AllergySeverity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+// ─── Geo ─────────────────────────────────────────────────────────────────────
+
+model City {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(100)
+  slug      String    @unique @db.VarChar(100)
+  isActive  Boolean   @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  areas           Area[]
+  patients        Patient[]
+  doctors         Doctor[]
+  hospitals       Hospital[]
+  labs            Lab[]
+  patientAddresses PatientAddress[]
+
+  @@index([isActive])
+  @@map("cities")
+}
+
+model Area {
+  id        String    @id @default(uuid()) @db.Uuid
+  cityId    String    @map("city_id") @db.Uuid
+  name      String    @db.VarChar(100)
+  slug      String    @db.VarChar(100)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  city             City             @relation(fields: [cityId], references: [id])
+  doctorClinics    DoctorClinic[]
+  hospitals        Hospital[]
+  labBranches      LabBranch[]
+  patientAddresses PatientAddress[]
+
+  @@unique([cityId, slug])
+  @@index([cityId])
+  @@map("areas")
+}
+
+// ─── Identity & Auth ─────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  phone        String     @unique @db.VarChar(20)
+  email        String?    @unique @db.VarChar(255)
+  passwordHash String?    @map("password_hash") @db.VarChar(255)
+  fullName     String     @map("full_name") @db.VarChar(150)
+  avatarUrl    String?    @map("avatar_url") @db.VarChar(500)
+  locale       String     @default("en") @db.VarChar(10)
+  timezone     String     @default("Asia/Karachi") @db.VarChar(64)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz()
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz()
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+
+  roles              UserRole[]
+  patient            Patient?
+  doctor             Doctor?
+  refreshTokens      RefreshToken[]
+  otpChallenges      OtpChallenge[]
+  devices            UserDevice[]
+  hospitalAdmins     HospitalAdmin[]
+  labAdmins          LabAdmin[]
+  payments              Payment[]                @relation("PaymentPayer")
+  reviewedPaymentProofs PaymentProof[]           @relation("PaymentProofReviewer")
+  notifications         Notification[]
+  notificationPrefs     NotificationPreference[]
+  auditLogs             AuditLog[]               @relation("AuditActor")
+  verifiedDoctors       Doctor[]                 @relation("DoctorVerifier")
+  verifiedHospitals     Hospital[]               @relation("HospitalVerifier")
+  verifiedLabs          Lab[]                    @relation("LabVerifier")
+  mediaFiles            MediaFile[]
+  moderatedReviews      Review[]                 @relation("ReviewModerator")
+  // future: commission payouts
+  payoutAccounts        PayoutAccount[]
+  couponRedemptions     CouponRedemption[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserRole {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  role       AppRole
+  grantedAt  DateTime  @default(now()) @map("granted_at") @db.Timestamptz()
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
+  @@map("user_roles")
+}
+
+model OtpChallenge {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  phone      String    @db.VarChar(20)
+  codeHash   String    @map("code_hash") @db.VarChar(255)
+  attemptCount Int     @default(0) @map("attempt_count")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz()
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([phone, createdAt])
+  @@map("otp_challenges")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash") @db.VarChar(255)
+  deviceId  String?   @map("device_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz()
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model UserDevice {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  platform  String   @db.VarChar(20) // ios | android | web
+  pushToken String?  @map("push_token") @db.VarChar(500)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz()
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, pushToken])
+  @@map("user_devices")
+}
+
+// ─── Patients ────────────────────────────────────────────────────────────────
+
+model Patient {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @map("user_id") @db.Uuid
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  gender      Gender?
+  bloodGroup  String?   @map("blood_group") @db.VarChar(5)
+  cnic        String?   @unique @db.VarChar(15)
+  cityId      String?   @map("city_id") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city         City?              @relation(fields: [cityId], references: [id])
+  addresses    PatientAddress[]
+  dependents   PatientDependent[]
+  allergies    PatientAllergy[]
+  appointments Appointment[]
+  labOrders    LabOrder[]
+  reviews      Review[]
+  favorites    FavoriteDoctor[]
+
+  @@index([cityId])
+  @@map("patients")
+}
+
+/// Book for family members without separate logins
+model PatientDependent {
+  id          String            @id @default(uuid()) @db.Uuid
+  patientId   String            @map("patient_id") @db.Uuid
+  fullName    String            @map("full_name") @db.VarChar(150)
+  relation    DependentRelation @default(OTHER)
+  dateOfBirth DateTime?         @map("date_of_birth") @db.Date
+  gender      Gender?
+  bloodGroup  String?           @map("blood_group") @db.VarChar(5)
+  cnic        String?           @db.VarChar(15)
+  isActive    Boolean           @default(true) @map("is_active")
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz()
+
+  patient      Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  labOrders    LabOrder[]
+
+  @@index([patientId])
+  @@map("patient_dependents")
+}
+
+model PatientAddress {
+  id           String   @id @default(uuid()) @db.Uuid
+  patientId    String   @map("patient_id") @db.Uuid
+  label        String   @default("Home") @db.VarChar(50)
+  addressLine1 String   @map("address_line1") @db.VarChar(255)
+  addressLine2 String?  @map("address_line2") @db.VarChar(255)
+  areaId       String?  @map("area_id") @db.Uuid
+  cityId       String   @map("city_id") @db.Uuid
+  lat          Decimal? @db.Decimal(10, 7)
+  lng          Decimal? @db.Decimal(10, 7)
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  area    Area?   @relation(fields: [areaId], references: [id])
+  city    City    @relation(fields: [cityId], references: [id])
+
+  @@index([patientId])
+  @@map("patient_addresses")
+}
+
+model PatientAllergy {
+  id        String          @id @default(uuid()) @db.Uuid
+  patientId String          @map("patient_id") @db.Uuid
+  name      String          @db.VarChar(150)
+  severity  AllergySeverity @default(MILD)
+  notes     String?         @db.Text
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_allergies")
+}
+
+model FavoriteDoctor {
+  id        String   @id @default(uuid()) @db.Uuid
+  patientId String   @map("patient_id") @db.Uuid
+  doctorId  String   @map("doctor_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, doctorId])
+  @@map("favorite_doctors")
+}
+
+// ─── Doctors ─────────────────────────────────────────────────────────────────
+
+model Specialty {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique @db.VarChar(100)
+  slug        String    @unique @db.VarChar(100)
+  description String?   @db.Text
+  iconUrl     String?   @map("icon_url") @db.VarChar(500)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  doctorSpecialties DoctorSpecialty[]
+
+  @@index([isActive, sortOrder])
+  @@map("specialties")
+}
+
+model Doctor {
+  id                  String             @id @default(uuid()) @db.Uuid
+  userId              String             @unique @map("user_id") @db.Uuid
+  pmcNumber           String?            @unique @map("pmc_number") @db.VarChar(50)
+  title               String             @default("Dr") @db.VarChar(20)
+  bio                 String?            @db.Text
+  yearsExperience     Int                @default(0) @map("years_experience")
+  consultationFee     Decimal            @default(0) @map("consultation_fee") @db.Decimal(12, 2)
+  followupFee         Decimal?           @map("followup_fee") @db.Decimal(12, 2)
+  currency            String             @default("PKR") @db.VarChar(3)
+  timezone            String             @default("Asia/Karachi") @db.VarChar(64)
+  avgRating           Decimal            @default(0) @map("avg_rating") @db.Decimal(3, 2)
+  reviewCount         Int                @default(0) @map("review_count")
+  completedConsults   Int                @default(0) @map("completed_consults")
+  nextAvailableAt     DateTime?          @map("next_available_at") @db.Timestamptz() // denorm for search
+  verificationStatus  VerificationStatus @default(DRAFT) @map("verification_status")
+  verifiedAt          DateTime?          @map("verified_at") @db.Timestamptz()
+  verifiedById        String?            @map("verified_by") @db.Uuid
+  rejectionReason     String?            @map("rejection_reason") @db.Text
+  isAcceptingPatients Boolean            @default(false) @map("is_accepting_patients")
+  cityId              String?            @map("city_id") @db.Uuid
+  // Cancellation: hours before slot when patient can cancel free
+  freeCancelHours     Int                @default(2) @map("free_cancel_hours")
+  /// Opt-in SehtDesk / SehatDoc clinic calendar sync (null = marketplace-only doctor)
+  sehatdocBookingSlug   String?  @unique @map("sehatdoc_booking_slug") @db.VarChar(100)
+  sehatdocDoctorUserId  String?  @map("sehatdoc_doctor_user_id") @db.Uuid
+  sehatdocClinicId      String?  @map("sehatdoc_clinic_id") @db.Uuid
+  sehatdocSyncEnabled   Boolean  @default(false) @map("sehatdoc_sync_enabled")
+  deletedAt           DateTime?          @map("deleted_at") @db.Timestamptz()
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user            User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedBy      User?                          @relation("DoctorVerifier", fields: [verifiedById], references: [id])
+  city            City?                          @relation(fields: [cityId], references: [id])
+  specialties     DoctorSpecialty[]
+  documents       DoctorDocument[]
+  educations      DoctorEducation[]
+  experiences     DoctorExperience[]
+  languages       DoctorLanguage[]
+  clinics         DoctorClinic[]
+  availabilities  DoctorAvailability[]
+  exceptions      DoctorAvailabilityException[]
+  hospitalDoctors HospitalDoctor[]
+  appointments    Appointment[]
+  favorites       FavoriteDoctor[]
+  wallet          Wallet?
+  payoutAccounts  PayoutAccount[]
+
+  // Search: approved + accepting + city
+  @@index([verificationStatus, isAcceptingPatients, cityId])
+  @@index([cityId, avgRating])
+  @@index([nextAvailableAt])
+  @@map("doctors")
+}
+
+model DoctorSpecialty {
+  id          String  @id @default(uuid()) @db.Uuid
+  doctorId    String  @map("doctor_id") @db.Uuid
+  specialtyId String  @map("specialty_id") @db.Uuid
+  isPrimary   Boolean @default(false) @map("is_primary")
+
+  doctor    Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  specialty Specialty @relation(fields: [specialtyId], references: [id])
+
+  @@unique([doctorId, specialtyId])
+  @@index([specialtyId])
+  @@map("doctor_specialties")
+}
+
+model DoctorDocument {
+  id         String         @id @default(uuid()) @db.Uuid
+  doctorId   String         @map("doctor_id") @db.Uuid
+  type       DocumentType
+  status     DocumentStatus @default(UPLOADED)
+  storageKey String         @map("storage_key") @db.VarChar(500)
+  fileName   String         @map("file_name") @db.VarChar(255)
+  mimeType   String         @map("mime_type") @db.VarChar(100)
+  notes      String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, type])
+  @@map("doctor_documents")
+}
+
+model DoctorEducation {
+  id        String @id @default(uuid()) @db.Uuid
+  doctorId  String @map("doctor_id") @db.Uuid
+  degree    String @db.VarChar(150)
+  institute String @db.VarChar(200)
+  yearFrom  Int?   @map("year_from")
+  yearTo    Int?   @map("year_to")
+  sortOrder Int    @default(0) @map("sort_order")
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@map("doctor_educations")
+}
+
+model DoctorExperience {
+  id           String    @id @default(uuid()) @db.Uuid
+  doctorId     String    @map("doctor_id") @db.Uuid
+  organization String    @db.VarChar(200)
+  roleTitle    String    @map("role_title") @db.VarChar(150)
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  isCurrent    Boolean   @default(false) @map("is_current")
+  description  String?   @db.Text
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@map("doctor_experiences")
+}
+
+model DoctorLanguage {
+  id       String @id @default(uuid()) @db.Uuid
+  doctorId String @map("doctor_id") @db.Uuid
+  language String @db.VarChar(50)
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, language])
+  @@map("doctor_languages")
+}
+
+model DoctorClinic {
+  id        String    @id @default(uuid()) @db.Uuid
+  doctorId  String    @map("doctor_id") @db.Uuid
+  name      String    @db.VarChar(200)
+  address   String    @db.Text
+  areaId    String?   @map("area_id") @db.Uuid
+  phone     String?   @db.VarChar(20)
+  fee       Decimal?  @db.Decimal(12, 2)
+  lat       Decimal?  @db.Decimal(10, 7)
+  lng       Decimal?  @db.Decimal(10, 7)
+  timezone  String    @default("Asia/Karachi") @db.VarChar(64)
+  isPrimary Boolean   @default(false) @map("is_primary")
+  isActive  Boolean   @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  area         Area?         @relation(fields: [areaId], references: [id])
+  appointments Appointment[]
+
+  @@index([doctorId])
+  @@map("doctor_clinics")
+}
+
+model DoctorAvailability {
+  id          String           @id @default(uuid()) @db.Uuid
+  doctorId    String           @map("doctor_id") @db.Uuid
+  dayOfWeek   Int              @map("day_of_week") // 0=Sun … 6=Sat
+  startTime   String           @map("start_time") @db.VarChar(5) // local HH:mm
+  endTime     String           @map("end_time") @db.VarChar(5)
+  slotMinutes Int              @default(15) @map("slot_minutes")
+  mode        AvailabilityMode @default(ONLINE)
+  clinicId    String?          @map("clinic_id") @db.Uuid
+  isActive    Boolean          @default(true) @map("is_active")
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, dayOfWeek, isActive])
+  @@map("doctor_availabilities")
+}
+
+model DoctorAvailabilityException {
+  id        String  @id @default(uuid()) @db.Uuid
+  doctorId  String  @map("doctor_id") @db.Uuid
+  date      DateTime @db.Date
+  isOff     Boolean @default(true) @map("is_off")
+  startTime String? @map("start_time") @db.VarChar(5)
+  endTime   String? @map("end_time") @db.VarChar(5)
+  reason    String? @db.VarChar(255)
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, date])
+  @@map("doctor_availability_exceptions")
+}
+
+// ─── Hospitals ───────────────────────────────────────────────────────────────
+
+model Hospital {
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String             @db.VarChar(200)
+  slug               String             @unique @db.VarChar(200)
+  type               HospitalType       @default(HOSPITAL)
+  description        String?            @db.Text
+  phone              String?            @db.VarChar(20)
+  email              String?            @db.VarChar(255)
+  address            String             @db.Text
+  areaId             String?            @map("area_id") @db.Uuid
+  cityId             String             @map("city_id") @db.Uuid
+  lat                Decimal?           @db.Decimal(10, 7)
+  lng                Decimal?           @db.Decimal(10, 7)
+  timezone           String             @default("Asia/Karachi") @db.VarChar(64)
+  verificationStatus VerificationStatus @default(DRAFT) @map("verification_status")
+  verifiedAt         DateTime?          @map("verified_at") @db.Timestamptz()
+  verifiedById       String?            @map("verified_by") @db.Uuid
+  rejectionReason    String?            @map("rejection_reason") @db.Text
+  avgRating          Decimal            @default(0) @map("avg_rating") @db.Decimal(3, 2)
+  reviewCount        Int                @default(0) @map("review_count")
+  isActive           Boolean            @default(true) @map("is_active")
+  deletedAt          DateTime?          @map("deleted_at") @db.Timestamptz()
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  city         City                 @relation(fields: [cityId], references: [id])
+  area         Area?                @relation(fields: [areaId], references: [id])
+  verifiedBy   User?                @relation("HospitalVerifier", fields: [verifiedById], references: [id])
+  departments  HospitalDepartment[]
+  doctors      HospitalDoctor[]
+  admins       HospitalAdmin[]
+  facilities   HospitalFacility[]
+  documents    HospitalDocument[]
+  appointments Appointment[]
+  wallet       Wallet?
+
+  @@index([cityId, verificationStatus, isActive])
+  @@map("hospitals")
+}
+
+model HospitalDepartment {
+  id          String @id @default(uuid()) @db.Uuid
+  hospitalId  String @map("hospital_id") @db.Uuid
+  name        String @db.VarChar(150)
+  description String? @db.Text
+
+  hospital Hospital         @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  doctors  HospitalDoctor[]
+
+  @@unique([hospitalId, name])
+  @@map("hospital_departments")
+}
+
+model HospitalDoctor {
+  id             String         @id @default(uuid()) @db.Uuid
+  hospitalId     String         @map("hospital_id") @db.Uuid
+  doctorId       String         @map("doctor_id") @db.Uuid
+  departmentId   String?        @map("department_id") @db.Uuid
+  employmentType EmploymentType @default(VISITING) @map("employment_type")
+  isPrimary      Boolean        @default(false) @map("is_primary")
+
+  hospital   Hospital            @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  doctor     Doctor              @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  department HospitalDepartment? @relation(fields: [departmentId], references: [id])
+
+  @@unique([hospitalId, doctorId])
+  @@index([doctorId])
+  @@map("hospital_doctors")
+}
+
+model HospitalAdmin {
+  id         String       @id @default(uuid()) @db.Uuid
+  hospitalId String       @map("hospital_id") @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  role       OrgAdminRole @default(MANAGER)
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hospitalId, userId])
+  @@map("hospital_admins")
+}
+
+model HospitalFacility {
+  id         String @id @default(uuid()) @db.Uuid
+  hospitalId String @map("hospital_id") @db.Uuid
+  name       String @db.VarChar(100)
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@unique([hospitalId, name])
+  @@map("hospital_facilities")
+}
+
+model HospitalDocument {
+  id         String         @id @default(uuid()) @db.Uuid
+  hospitalId String         @map("hospital_id") @db.Uuid
+  type       DocumentType
+  status     DocumentStatus @default(UPLOADED)
+  storageKey String         @map("storage_key") @db.VarChar(500)
+  fileName   String         @map("file_name") @db.VarChar(255)
+  mimeType   String         @map("mime_type") @db.VarChar(100)
+  notes      String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId])
+  @@map("hospital_documents")
+}
+
+// ─── Labs ────────────────────────────────────────────────────────────────────
+
+model Lab {
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String             @db.VarChar(200)
+  slug               String             @unique @db.VarChar(200)
+  description        String?            @db.Text
+  phone              String?            @db.VarChar(20)
+  email              String?            @db.VarChar(255)
+  address            String             @db.Text
+  cityId             String             @map("city_id") @db.Uuid
+  lat                Decimal?           @db.Decimal(10, 7)
+  lng                Decimal?           @db.Decimal(10, 7)
+  homeCollection     Boolean            @default(false) @map("home_collection")
+  homeCollectionFee  Decimal            @default(0) @map("home_collection_fee") @db.Decimal(12, 2)
+  verificationStatus VerificationStatus @default(DRAFT) @map("verification_status")
+  verifiedAt         DateTime?          @map("verified_at") @db.Timestamptz()
+  verifiedById       String?            @map("verified_by") @db.Uuid
+  rejectionReason    String?            @map("rejection_reason") @db.Text
+  avgRating          Decimal            @default(0) @map("avg_rating") @db.Decimal(3, 2)
+  reviewCount        Int                @default(0) @map("review_count")
+  isActive           Boolean            @default(true) @map("is_active")
+  deletedAt          DateTime?          @map("deleted_at") @db.Timestamptz()
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  city       City            @relation(fields: [cityId], references: [id])
+  verifiedBy User?           @relation("LabVerifier", fields: [verifiedById], references: [id])
+  branches   LabBranch[]
+  prices     LabTestPrice[]
+  packages   LabPackage[]
+  admins     LabAdmin[]
+  documents  LabDocument[]
+  orders     LabOrder[]
+  wallet     Wallet?
+
+  @@index([cityId, verificationStatus, isActive])
+  @@map("labs")
+}
+
+model LabBranch {
+  id        String    @id @default(uuid()) @db.Uuid
+  labId     String    @map("lab_id") @db.Uuid
+  name      String    @db.VarChar(150)
+  address   String    @db.Text
+  areaId    String?   @map("area_id") @db.Uuid
+  phone     String?   @db.VarChar(20)
+  lat       Decimal?  @db.Decimal(10, 7)
+  lng       Decimal?  @db.Decimal(10, 7)
+  isActive  Boolean   @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  lab    Lab        @relation(fields: [labId], references: [id], onDelete: Cascade)
+  area   Area?      @relation(fields: [areaId], references: [id])
+  orders LabOrder[]
+
+  @@index([labId])
+  @@map("lab_branches")
+}
+
+model LabTest {
+  id              String     @id @default(uuid()) @db.Uuid
+  code            String     @unique @db.VarChar(50)
+  name            String     @db.VarChar(200)
+  category        String     @db.VarChar(100)
+  sampleType      SampleType @default(BLOOD) @map("sample_type")
+  turnaroundHours Int        @default(24) @map("turnaround_hours")
+  description     String?    @db.Text
+  fastingRequired Boolean    @default(false) @map("fasting_required")
+  isActive        Boolean    @default(true) @map("is_active")
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz()
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+
+  prices       LabTestPrice[]
+  packageTests LabPackageTest[]
+  orderItems   LabOrderItem[]
+
+  @@index([category, isActive])
+  @@index([name])
+  @@map("lab_tests")
+}
+
+model LabTestPrice {
+  id          String  @id @default(uuid()) @db.Uuid
+  labId       String  @map("lab_id") @db.Uuid
+  labTestId   String  @map("lab_test_id") @db.Uuid
+  price       Decimal @db.Decimal(12, 2)
+  isAvailable Boolean @default(true) @map("is_available")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  lab     Lab     @relation(fields: [labId], references: [id], onDelete: Cascade)
+  labTest LabTest @relation(fields: [labTestId], references: [id])
+
+  @@unique([labId, labTestId])
+  @@index([labTestId, isAvailable])
+  @@map("lab_test_prices")
+}
+
+model LabPackage {
+  id          String    @id @default(uuid()) @db.Uuid
+  labId       String    @map("lab_id") @db.Uuid
+  name        String    @db.VarChar(200)
+  description String?   @db.Text
+  price       Decimal   @db.Decimal(12, 2)
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+
+  lab        Lab              @relation(fields: [labId], references: [id], onDelete: Cascade)
+  tests      LabPackageTest[]
+  orderItems LabOrderItem[]
+
+  @@index([labId, isActive])
+  @@map("lab_packages")
+}
+
+model LabPackageTest {
+  id        String @id @default(uuid()) @db.Uuid
+  packageId String @map("package_id") @db.Uuid
+  labTestId String @map("lab_test_id") @db.Uuid
+
+  package LabPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  labTest LabTest    @relation(fields: [labTestId], references: [id])
+
+  @@unique([packageId, labTestId])
+  @@map("lab_package_tests")
+}
+
+model LabAdmin {
+  id     String       @id @default(uuid()) @db.Uuid
+  labId  String       @map("lab_id") @db.Uuid
+  userId String       @map("user_id") @db.Uuid
+  role   OrgAdminRole @default(MANAGER)
+
+  lab  Lab  @relation(fields: [labId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([labId, userId])
+  @@map("lab_admins")
+}
+
+model LabDocument {
+  id         String         @id @default(uuid()) @db.Uuid
+  labId      String         @map("lab_id") @db.Uuid
+  type       DocumentType
+  status     DocumentStatus @default(UPLOADED)
+  storageKey String         @map("storage_key") @db.VarChar(500)
+  fileName   String         @map("file_name") @db.VarChar(255)
+  mimeType   String         @map("mime_type") @db.VarChar(100)
+  notes      String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+
+  lab Lab @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@index([labId])
+  @@map("lab_documents")
+}
+
+// ─── Appointments & Consultations ────────────────────────────────────────────
+
+model Appointment {
+  id               String            @id @default(uuid()) @db.Uuid
+  patientId        String            @map("patient_id") @db.Uuid
+  /// Who the visit is for (self or family member)
+  dependentId      String?           @map("dependent_id") @db.Uuid
+  doctorId         String            @map("doctor_id") @db.Uuid
+  hospitalId       String?           @map("hospital_id") @db.Uuid
+  clinicId         String?           @map("clinic_id") @db.Uuid
+  mode             AppointmentMode
+  status           AppointmentStatus @default(PENDING_PAYMENT)
+  scheduledStart   DateTime          @map("scheduled_start") @db.Timestamptz()
+  scheduledEnd     DateTime          @map("scheduled_end") @db.Timestamptz()
+  /// Snapshot pricing at booking time
+  feeAmount        Decimal           @map("fee_amount") @db.Decimal(12, 2)
+  discountAmount   Decimal           @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  platformFee      Decimal           @default(0) @map("platform_fee") @db.Decimal(12, 2)
+  taxAmount        Decimal           @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount      Decimal           @map("total_amount") @db.Decimal(12, 2)
+  currency         String            @default("PKR") @db.VarChar(3)
+  couponId         String?           @map("coupon_id") @db.Uuid
+  /// Hold slot until this time while awaiting payment
+  paymentExpiresAt DateTime?         @map("payment_expires_at") @db.Timestamptz()
+  /// Follow-up / reschedule chain
+  parentAppointmentId String?        @map("parent_appointment_id") @db.Uuid
+  rescheduledFromId   String?        @map("rescheduled_from_id") @db.Uuid
+  cancelReason     String?           @map("cancel_reason") @db.Text
+  cancelledBy      CancelledBy?      @map("cancelled_by")
+  cancelledAt      DateTime?         @map("cancelled_at") @db.Timestamptz()
+  idempotencyKey   String?           @unique @map("idempotency_key") @db.VarChar(100)
+  /// SehtDesk calendar sync (NOT_LINKED when doctor has no Desk account)
+  syncStatus       DeskSyncStatus    @default(NOT_LINKED) @map("sync_status")
+  syncError        String?           @map("sync_error") @db.Text
+  syncedAt         DateTime?         @map("synced_at") @db.Timestamptz()
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz()
+
+  patient           Patient                 @relation(fields: [patientId], references: [id])
+  dependent         PatientDependent?       @relation(fields: [dependentId], references: [id])
+  doctor            Doctor                  @relation(fields: [doctorId], references: [id])
+  hospital          Hospital?               @relation(fields: [hospitalId], references: [id])
+  clinic            DoctorClinic?           @relation(fields: [clinicId], references: [id])
+  coupon            Coupon?                 @relation(fields: [couponId], references: [id])
+  parentAppointment Appointment?            @relation("AppointmentFollowUps", fields: [parentAppointmentId], references: [id])
+  followUps         Appointment[]           @relation("AppointmentFollowUps")
+  rescheduledFrom   Appointment?            @relation("AppointmentReschedule", fields: [rescheduledFromId], references: [id])
+  rescheduledTo     Appointment[]           @relation("AppointmentReschedule")
+  consultation      Consultation?
+  prescription      Prescription?
+  statusHistory     AppointmentStatusHistory[]
+  reviews           Review[]
+  couponRedemptions CouponRedemption[]
+
+  @@index([doctorId, scheduledStart])
+  @@index([patientId, createdAt])
+  @@index([status, paymentExpiresAt])
+  @@index([scheduledStart])
+  @@index([syncStatus])
+  @@map("appointments")
+}
+
+model AppointmentStatusHistory {
+  id            String             @id @default(uuid()) @db.Uuid
+  appointmentId String             @map("appointment_id") @db.Uuid
+  fromStatus    AppointmentStatus? @map("from_status")
+  toStatus      AppointmentStatus  @map("to_status")
+  changedById   String?            @map("changed_by") @db.Uuid
+  note          String?            @db.VarChar(255)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, createdAt])
+  @@map("appointment_status_history")
+}
+
+model Consultation {
+  id              String             @id @default(uuid()) @db.Uuid
+  appointmentId   String             @unique @map("appointment_id") @db.Uuid
+  videoRoomId     String?            @map("video_room_id") @db.VarChar(255)
+  provider        VideoProvider      @default(AGORA)
+  status          ConsultationStatus @default(WAITING)
+  startedAt       DateTime?          @map("started_at") @db.Timestamptz()
+  endedAt         DateTime?          @map("ended_at") @db.Timestamptz()
+  patientJoinedAt DateTime?          @map("patient_joined_at") @db.Timestamptz()
+  doctorJoinedAt  DateTime?          @map("doctor_joined_at") @db.Timestamptz()
+  recordingConsent Boolean           @default(false) @map("recording_consent")
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("consultations")
+}
+
+model Prescription {
+  id            String    @id @default(uuid()) @db.Uuid
+  appointmentId String    @unique @map("appointment_id") @db.Uuid
+  medicines     Json // [{name, dosage, frequency, duration, notes}]
+  advice        String?   @db.Text
+  diagnosis     String?   @db.Text
+  followUpDate  DateTime? @map("follow_up_date") @db.Date
+  pdfUrl        String?   @map("pdf_url") @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("prescriptions")
+}
+
+// ─── Lab Orders ──────────────────────────────────────────────────────────────
+
+model LabOrder {
+  id                 String         @id @default(uuid()) @db.Uuid
+  patientId          String         @map("patient_id") @db.Uuid
+  dependentId        String?        @map("dependent_id") @db.Uuid
+  labId              String         @map("lab_id") @db.Uuid
+  branchId           String?        @map("branch_id") @db.Uuid
+  collectionType     CollectionType @map("collection_type")
+  status             LabOrderStatus @default(PENDING_PAYMENT)
+  scheduledAt        DateTime?      @map("scheduled_at") @db.Timestamptz()
+  addressSnapshot    Json?          @map("address_snapshot")
+  subtotalAmount     Decimal        @map("subtotal_amount") @db.Decimal(12, 2)
+  collectionFee      Decimal        @default(0) @map("collection_fee") @db.Decimal(12, 2)
+  discountAmount     Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  platformFee        Decimal        @default(0) @map("platform_fee") @db.Decimal(12, 2)
+  taxAmount          Decimal        @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount        Decimal        @map("total_amount") @db.Decimal(12, 2)
+  currency           String         @default("PKR") @db.VarChar(3)
+  couponId           String?        @map("coupon_id") @db.Uuid
+  paymentExpiresAt   DateTime?      @map("payment_expires_at") @db.Timestamptz()
+  cancelReason       String?        @map("cancel_reason") @db.Text
+  idempotencyKey     String?        @unique @map("idempotency_key") @db.VarChar(100)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+
+  patient           Patient            @relation(fields: [patientId], references: [id])
+  dependent         PatientDependent?  @relation(fields: [dependentId], references: [id])
+  lab               Lab                @relation(fields: [labId], references: [id])
+  branch            LabBranch?         @relation(fields: [branchId], references: [id])
+  coupon            Coupon?            @relation(fields: [couponId], references: [id])
+  items             LabOrderItem[]
+  reports           LabReport[]
+  statusHistory     LabOrderStatusHistory[]
+  reviews           Review[]
+  couponRedemptions CouponRedemption[]
+
+  @@index([patientId, createdAt])
+  @@index([labId, status])
+  @@index([status, paymentExpiresAt])
+  @@map("lab_orders")
+}
+
+model LabOrderStatusHistory {
+  id         String         @id @default(uuid()) @db.Uuid
+  labOrderId String         @map("lab_order_id") @db.Uuid
+  fromStatus LabOrderStatus? @map("from_status")
+  toStatus   LabOrderStatus @map("to_status")
+  note       String?        @db.VarChar(255)
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  @@index([labOrderId, createdAt])
+  @@map("lab_order_status_history")
+}
+
+model LabOrderItem {
+  id            String  @id @default(uuid()) @db.Uuid
+  labOrderId    String  @map("lab_order_id") @db.Uuid
+  labTestId     String? @map("lab_test_id") @db.Uuid
+  packageId     String? @map("package_id") @db.Uuid
+  nameSnapshot  String  @map("name_snapshot") @db.VarChar(200)
+  priceSnapshot Decimal @map("price_snapshot") @db.Decimal(12, 2)
+
+  labOrder LabOrder    @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+  labTest  LabTest?    @relation(fields: [labTestId], references: [id])
+  package  LabPackage? @relation(fields: [packageId], references: [id])
+
+  @@index([labOrderId])
+  @@map("lab_order_items")
+}
+
+model LabReport {
+  id         String   @id @default(uuid()) @db.Uuid
+  labOrderId String   @map("lab_order_id") @db.Uuid
+  fileUrl    String   @map("file_url") @db.VarChar(500)
+  storageKey String   @map("storage_key") @db.VarChar(500)
+  notes      String?  @db.Text
+  uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamptz()
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  @@index([labOrderId])
+  @@map("lab_reports")
+}
+
+// ─── Payments (v1: cash + manual transfer + screenshot proof) ────────────────
+//
+// Flow — CASH:
+//   book → Payment(method=CASH, status=PAID or INITIATED) → appointment CONFIRMED
+//   (cash collected at clinic / visit; mark PAID when staff confirms if needed)
+//
+// Flow — MANUAL_TRANSFER:
+//   book → show active PaymentInstruction → Payment(AWAITING_PROOF)
+//   → patient uploads PaymentProof → PENDING_VERIFICATION
+//   → admin APPROVES proof → Payment PAID → appointment/lab_order CONFIRMED
+//   → or REJECTS → PROOF_REJECTED → patient re-uploads
+
+/// Accounts patients transfer into (JazzCash / bank / EasyPaisa numbers)
+model PaymentInstruction {
+  id            String                @id @default(uuid()) @db.Uuid
+  channel       PaymentAccountChannel
+  accountTitle  String                @map("account_title") @db.VarChar(150)
+  accountNumber String                @map("account_number") @db.VarChar(50)
+  bankName      String?               @map("bank_name") @db.VarChar(100)
+  iban          String?               @db.VarChar(34)
+  instructions  String?               @db.Text // “Send fee + write booking ID in note”
+  isActive      Boolean               @default(true) @map("is_active")
+  sortOrder     Int                   @default(0) @map("sort_order")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz()
+
+  payments Payment[]
+
+  @@index([isActive, sortOrder])
+  @@map("payment_instructions")
+}
+
+model Payment {
+  id                    String           @id @default(uuid()) @db.Uuid
+  payerUserId           String           @map("payer_user_id") @db.Uuid
+  payableType           PayableType      @map("payable_type")
+  payableId             String           @map("payable_id") @db.Uuid
+  amount                Decimal          @db.Decimal(12, 2)
+  currency              String           @default("PKR") @db.VarChar(3)
+  method                PaymentMethod
+  /// Which account was shown for MANUAL_TRANSFER
+  paymentInstructionId  String?          @map("payment_instruction_id") @db.Uuid
+  /// Optional txn id typed by patient (from JazzCash/bank SMS)
+  transferReference     String?          @map("transfer_reference") @db.VarChar(100)
+  status                PaymentStatus    @default(INITIATED)
+  failureReason         String?          @map("failure_reason") @db.Text
+  paidAt                DateTime?        @map("paid_at") @db.Timestamptz()
+  verifiedAt            DateTime?        @map("verified_at") @db.Timestamptz()
+  idempotencyKey        String?          @unique @map("idempotency_key") @db.VarChar(100)
+  meta                  Json?
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz()
+
+  payer               User                @relation("PaymentPayer", fields: [payerUserId], references: [id])
+  paymentInstruction  PaymentInstruction? @relation(fields: [paymentInstructionId], references: [id])
+  proofs              PaymentProof[]
+  refunds             Refund[]
+
+  @@index([payableType, payableId])
+  @@index([payerUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([method, status])
+  @@map("payments")
+}
+
+/// Screenshot / transfer slip uploaded by patient
+model PaymentProof {
+  id               String             @id @default(uuid()) @db.Uuid
+  paymentId        String             @map("payment_id") @db.Uuid
+  storageKey       String             @map("storage_key") @db.VarChar(500)
+  fileName         String             @map("file_name") @db.VarChar(255)
+  mimeType         String             @map("mime_type") @db.VarChar(100)
+  transferReference String?           @map("transfer_reference") @db.VarChar(100)
+  amountClaimed    Decimal?           @map("amount_claimed") @db.Decimal(12, 2)
+  status           PaymentProofStatus @default(UPLOADED)
+  reviewedById     String?            @map("reviewed_by") @db.Uuid
+  reviewedAt       DateTime?          @map("reviewed_at") @db.Timestamptz()
+  rejectionReason  String?            @map("rejection_reason") @db.Text
+  uploadedAt       DateTime           @default(now()) @map("uploaded_at") @db.Timestamptz()
+
+  payment    Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("PaymentProofReviewer", fields: [reviewedById], references: [id])
+
+  @@index([paymentId, status])
+  @@index([status, uploadedAt])
+  @@map("payment_proofs")
+}
+
+model Refund {
+  id          String       @id @default(uuid()) @db.Uuid
+  paymentId   String       @map("payment_id") @db.Uuid
+  amount      Decimal      @db.Decimal(12, 2)
+  reason      String?      @db.Text
+  status      RefundStatus @default(PENDING)
+  processedAt DateTime?    @map("processed_at") @db.Timestamptz()
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+// ─── FUTURE: wallets / ledger / payouts (commission — not used in v1) ────────
+
+/// One wallet per earning entity (doctor / hospital / lab / platform)
+model Wallet {
+  id           String          @id @default(uuid()) @db.Uuid
+  ownerType    LedgerOwnerType @map("owner_type")
+  doctorId     String?         @unique @map("doctor_id") @db.Uuid
+  hospitalId   String?         @unique @map("hospital_id") @db.Uuid
+  labId        String?         @unique @map("lab_id") @db.Uuid
+  currency     String          @default("PKR") @db.VarChar(3)
+  availableBalance Decimal     @default(0) @map("available_balance") @db.Decimal(14, 2)
+  pendingBalance   Decimal     @default(0) @map("pending_balance") @db.Decimal(14, 2)
+  lifetimeEarned   Decimal     @default(0) @map("lifetime_earned") @db.Decimal(14, 2)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz()
+
+  doctor   Doctor?       @relation(fields: [doctorId], references: [id])
+  hospital Hospital?     @relation(fields: [hospitalId], references: [id])
+  lab      Lab?          @relation(fields: [labId], references: [id])
+  entries  LedgerEntry[]
+  payouts  Payout[]
+
+  @@index([ownerType])
+  @@map("wallets")
+}
+
+/// Immutable money movement log — source of truth for balances
+model LedgerEntry {
+  id            String          @id @default(uuid()) @db.Uuid
+  walletId      String          @map("wallet_id") @db.Uuid
+  entryType     LedgerEntryType @map("entry_type")
+  amount        Decimal         @db.Decimal(14, 2) // +credit / -debit
+  currency      String          @default("PKR") @db.VarChar(3)
+  payableType   PayableType?    @map("payable_type")
+  payableId     String?         @map("payable_id") @db.Uuid
+  payoutId      String?         @map("payout_id") @db.Uuid
+  description   String?         @db.VarChar(255)
+  idempotencyKey String?        @unique @map("idempotency_key") @db.VarChar(100)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  wallet Wallet  @relation(fields: [walletId], references: [id])
+  payout Payout? @relation(fields: [payoutId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([payableType, payableId])
+  @@map("ledger_entries")
+}
+
+model PayoutAccount {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  doctorId      String?      @map("doctor_id") @db.Uuid
+  method        PayoutMethod
+  accountTitle  String       @map("account_title") @db.VarChar(150)
+  accountNumber String       @map("account_number") @db.VarChar(50)
+  bankName      String?      @map("bank_name") @db.VarChar(100)
+  iban          String?      @db.VarChar(34)
+  isDefault     Boolean      @default(true) @map("is_default")
+  isVerified    Boolean      @default(false) @map("is_verified")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctor Doctor?  @relation(fields: [doctorId], references: [id])
+  payouts Payout[]
+
+  @@index([userId])
+  @@map("payout_accounts")
+}
+
+model Payout {
+  id              String       @id @default(uuid()) @db.Uuid
+  walletId        String       @map("wallet_id") @db.Uuid
+  payoutAccountId String       @map("payout_account_id") @db.Uuid
+  amount          Decimal      @db.Decimal(14, 2)
+  currency        String       @default("PKR") @db.VarChar(3)
+  status          PayoutStatus @default(PENDING)
+  providerRef     String?      @map("provider_ref") @db.VarChar(255)
+  failureReason   String?      @map("failure_reason") @db.Text
+  processedAt     DateTime?    @map("processed_at") @db.Timestamptz()
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+
+  wallet        Wallet         @relation(fields: [walletId], references: [id])
+  payoutAccount PayoutAccount  @relation(fields: [payoutAccountId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@index([walletId, status])
+  @@map("payouts")
+}
+
+// ─── Coupons ─────────────────────────────────────────────────────────────────
+
+model Coupon {
+  id              String          @id @default(uuid()) @db.Uuid
+  code            String          @unique @db.VarChar(40)
+  type            CouponType
+  value           Decimal         @db.Decimal(12, 2) // % or fixed PKR
+  appliesTo       CouponAppliesTo @default(ALL) @map("applies_to")
+  minOrderAmount  Decimal?        @map("min_order_amount") @db.Decimal(12, 2)
+  maxDiscount     Decimal?        @map("max_discount") @db.Decimal(12, 2)
+  usageLimit      Int?            @map("usage_limit")
+  perUserLimit    Int             @default(1) @map("per_user_limit")
+  usedCount       Int             @default(0) @map("used_count")
+  startsAt        DateTime        @map("starts_at") @db.Timestamptz()
+  endsAt          DateTime        @map("ends_at") @db.Timestamptz()
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz()
+
+  appointments Appointment[]
+  labOrders    LabOrder[]
+  redemptions  CouponRedemption[]
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id            String   @id @default(uuid()) @db.Uuid
+  couponId      String   @map("coupon_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  appointmentId String?  @map("appointment_id") @db.Uuid
+  labOrderId    String?  @map("lab_order_id") @db.Uuid
+  discountAmount Decimal @map("discount_amount") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  coupon      Coupon       @relation(fields: [couponId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  labOrder    LabOrder?    @relation(fields: [labOrderId], references: [id])
+
+  @@index([couponId, userId])
+  @@map("coupon_redemptions")
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+model Review {
+  id            String           @id @default(uuid()) @db.Uuid
+  patientId     String           @map("patient_id") @db.Uuid
+  targetType    ReviewTargetType @map("target_type")
+  targetId      String           @map("target_id") @db.Uuid
+  appointmentId String?          @map("appointment_id") @db.Uuid
+  labOrderId    String?          @map("lab_order_id") @db.Uuid
+  rating        Int // 1–5
+  comment       String?          @db.Text
+  status        ReviewStatus     @default(PUBLISHED)
+  moderatedById String?          @map("moderated_by") @db.Uuid
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz()
+
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  labOrder    LabOrder?    @relation(fields: [labOrderId], references: [id])
+  moderatedBy User?        @relation("ReviewModerator", fields: [moderatedById], references: [id])
+
+  @@index([targetType, targetId, status])
+  @@index([patientId])
+  @@map("reviews")
+}
+
+// ─── Platform config & async infra ───────────────────────────────────────────
+
+model PlatformSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique @db.VarChar(100)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("platform_settings")
+}
+
+/// Useful keys:
+/// - payment_hold_minutes (default 30)
+/// - default_slot_minutes
+/// - cash_auto_confirm_appointment (bool) — confirm booking immediately on CASH
+/// - future: appointment_commission_percent, lab_commission_percent
+
+model NotificationPreference {
+  id      String              @id @default(uuid()) @db.Uuid
+  userId  String              @map("user_id") @db.Uuid
+  channel NotificationChannel
+  enabled Boolean             @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channel])
+  @@map("notification_preferences")
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  channel   NotificationChannel
+  template  String              @db.VarChar(100)
+  payload   Json?
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?           @map("sent_at") @db.Timestamptz()
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(50)
+  entityId    String   @map("entity_id") @db.Uuid
+  before      Json?
+  after       Json?
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model MediaFile {
+  id          String       @id @default(uuid()) @db.Uuid
+  ownerUserId String?      @map("owner_user_id") @db.Uuid
+  ownerType   String       @map("owner_type") @db.VarChar(50)
+  ownerId     String       @map("owner_id") @db.Uuid
+  storageKey  String       @map("storage_key") @db.VarChar(500)
+  mimeType    String       @map("mime_type") @db.VarChar(100)
+  byteSize    Int?         @map("byte_size")
+  purpose     MediaPurpose @default(OTHER)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  owner User? @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerType, ownerId])
+  @@map("media_files")
+}
+
+/// Transactional outbox for reliable async (SMS, webhooks, search reindex)
+model OutboxEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  eventType   String       @map("event_type") @db.VarChar(100)
+  aggregateType String     @map("aggregate_type") @db.VarChar(50)
+  aggregateId String       @map("aggregate_id") @db.Uuid
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now()) @map("available_at") @db.Timestamptz()
+  publishedAt DateTime?    @map("published_at") @db.Timestamptz()
+  lastError   String?      @map("last_error") @db.Text
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+}

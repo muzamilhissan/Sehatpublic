@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs / OS
+*.log
+.DS_Store
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+scripts/api-test-results.json

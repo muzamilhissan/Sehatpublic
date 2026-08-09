@@ -1,0 +1,171 @@
+import type { Lab, LabBranch, LabPackage, LabTest, LabTestPrice } from '@/types';
+import { getCityBySlug, AREAS } from './cities';
+
+export const LAB_TESTS: LabTest[] = [
+  { id: 't1111111-1111-1111-1111-111111111001', name: 'Complete Blood Count (CBC)', slug: 'cbc', description: 'Measures red/white cells and platelets.', category: 'Hematology', sampleType: 'Blood', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111002', name: 'HbA1c', slug: 'hba1c', description: 'Average blood sugar over 3 months.', category: 'Diabetes', sampleType: 'Blood', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111003', name: 'Lipid Profile', slug: 'lipid-profile', description: 'Cholesterol and triglycerides panel.', category: 'Cardiac', sampleType: 'Blood', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111004', name: 'Thyroid Profile (T3/T4/TSH)', slug: 'thyroid-profile', description: 'Full thyroid function panel.', category: 'Hormones', sampleType: 'Blood', turnaroundHours: 36, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111005', name: 'Vitamin D', slug: 'vitamin-d', description: '25-OH Vitamin D level.', category: 'Vitamins', sampleType: 'Blood', turnaroundHours: 48, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111006', name: 'Liver Function Test (LFT)', slug: 'lft', description: 'Assess liver enzymes and bilirubin.', category: 'Liver', sampleType: 'Blood', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111007', name: 'Kidney Function Test (KFT)', slug: 'kft', description: 'Creatinine, urea, and electrolytes.', category: 'Kidney', sampleType: 'Blood', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111008', name: 'Urine DR', slug: 'urine-dr', description: 'Routine urine examination.', category: 'Urinalysis', sampleType: 'Urine', turnaroundHours: 12, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111009', name: 'COVID-19 PCR', slug: 'covid-pcr', description: 'SARS-CoV-2 PCR detection.', category: 'Infectious', sampleType: 'Swab', turnaroundHours: 24, isActive: true },
+  { id: 't1111111-1111-1111-1111-111111111010', name: 'Ultrasound Abdomen', slug: 'usg-abdomen', description: 'Abdominal ultrasound imaging.', category: 'Imaging', sampleType: null, turnaroundHours: 4, isActive: true },
+];
+
+const labDefs = [
+  {
+    id: 'l1111111-1111-1111-1111-111111111001',
+    name: 'Chughtai Lab',
+    slug: 'chughtai-lab',
+    city: 'lahore',
+    area: 'gulberg',
+    phone: '+924211114567',
+    email: 'care@chughtailab.com',
+    address: '205-A, Jail Road, Lahore',
+    description: 'Nationwide diagnostic network with home sampling.',
+    rating: 4.7,
+    reviews: 4500,
+    home: true,
+  },
+  {
+    id: 'l1111111-1111-1111-1111-111111111002',
+    name: 'Aga Khan Lab Collection Unit',
+    slug: 'aku-lab-karachi',
+    city: 'karachi',
+    area: 'clifton',
+    phone: '+922134860000',
+    email: 'lab@aku.edu',
+    address: 'Stadium Road Collection Point, Karachi',
+    description: 'High-quality clinical laboratory services.',
+    rating: 4.8,
+    reviews: 3200,
+    home: true,
+  },
+  {
+    id: 'l1111111-1111-1111-1111-111111111003',
+    name: 'Excel Labs',
+    slug: 'excel-labs-islamabad',
+    city: 'islamabad',
+    area: 'f-7',
+    phone: '+92512820000',
+    email: 'info@excellabs.com.pk',
+    address: 'F-7 Markaz, Islamabad',
+    description: 'Modern diagnostics with fast digital reports.',
+    rating: 4.6,
+    reviews: 1800,
+    home: true,
+  },
+  {
+    id: 'l1111111-1111-1111-1111-111111111004',
+    name: 'Islamabad Diagnostic Centre',
+    slug: 'idc-rawalpindi',
+    city: 'rawalpindi',
+    area: 'saddar',
+    phone: '+92515555555',
+    email: 'info@idc.net.pk',
+    address: 'Saddar, Rawalpindi',
+    description: 'Imaging and pathology under one roof.',
+    rating: 4.5,
+    reviews: 1100,
+    home: false,
+  },
+  {
+    id: 'l1111111-1111-1111-1111-111111111005',
+    name: 'Alnoor Diagnostic Centre',
+    slug: 'alnoor-faisalabad',
+    city: 'faisalabad',
+    area: 'madina-town',
+    phone: '+92418770000',
+    email: 'info@alnoordc.com',
+    address: 'Madina Town, Faisalabad',
+    description: 'Trusted local lab for routine and specialized tests.',
+    rating: 4.4,
+    reviews: 760,
+    home: true,
+  },
+  {
+    id: 'l1111111-1111-1111-1111-111111111006',
+    name: 'Multan Diagnostic Lab',
+    slug: 'mdl-multan',
+    city: 'multan',
+    area: 'cantt',
+    phone: '+92614500000',
+    email: 'care@mdl.pk',
+    address: 'Cantt, Multan',
+    description: 'Full-service pathology and home collection.',
+    rating: 4.3,
+    reviews: 540,
+    home: true,
+  },
+];
+
+const basePrices = [1200, 1800, 2200, 2800, 3500, 2000, 2000, 800, 4500, 4000];
+
+export const LABS: Lab[] = labDefs.map((lab, labIndex) => {
+  const city = getCityBySlug(lab.city)!;
+  const area = AREAS.find((a) => a.cityId === city.id && a.slug === lab.area)!;
+  const branches: LabBranch[] = [
+    {
+      id: `lb111111-1111-1111-1111-${String(labIndex + 1).padStart(12, '0')}`,
+      labId: lab.id,
+      name: `${lab.name} Main Branch`,
+      address: lab.address,
+      areaId: area.id,
+      phone: lab.phone,
+      isPrimary: true,
+    },
+  ];
+  const testPrices: LabTestPrice[] = LAB_TESTS.map((test, i) => ({
+    id: `lp111111-1111-1111-1111-${String(labIndex * 20 + i + 1).padStart(12, '0')}`,
+    labId: lab.id,
+    labTestId: test.id,
+    price: String(basePrices[i] + labIndex * 50),
+    currency: 'PKR',
+    homeCollectionFee: lab.home ? '300' : null,
+    labTest: test,
+  }));
+  const packages: LabPackage[] = [
+    {
+      id: `pkg11111-1111-1111-1111-${String(labIndex + 1).padStart(12, '0')}`,
+      labId: lab.id,
+      name: 'Executive Health Check',
+      description: 'CBC, Lipid, LFT, KFT, HbA1c',
+      price: String(7500 + labIndex * 200),
+      currency: 'PKR',
+      isActive: true,
+    },
+    {
+      id: `pkg11111-2222-2222-2222-${String(labIndex + 1).padStart(12, '0')}`,
+      labId: lab.id,
+      name: 'Diabetes Care Package',
+      description: 'HbA1c, Fasting sugar indicators, Lipid Profile',
+      price: String(4200 + labIndex * 100),
+      currency: 'PKR',
+      isActive: true,
+    },
+  ];
+
+  return {
+    id: lab.id,
+    name: lab.name,
+    slug: lab.slug,
+    description: lab.description,
+    phone: lab.phone,
+    email: lab.email,
+    address: lab.address,
+    cityId: city.id,
+    areaId: area.id,
+    avgRating: lab.rating.toFixed(2),
+    reviewCount: lab.reviews,
+    verificationStatus: 'APPROVED',
+    isActive: true,
+    supportsHomeCollection: lab.home,
+    city,
+    area,
+    branches,
+    testPrices,
+    packages,
+  };
+});

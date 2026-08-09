@@ -9,15 +9,14 @@ export default function Footer() {
     <footer className="footer">
       <div className="container">
         <div className="footer-top">
-          {/* Brand Info */}
           <div className="footer-brand-info">
             <Link href="/" className="footer-logo-container">
               <div className="footer-logo-image-wrapper">
-                <Image 
-                  src="/logos/logo-optimized copy.png" 
-                  alt="Sehat Doc Logo" 
-                  width={34} 
-                  height={34} 
+                <Image
+                  src="/logos/logo-optimized copy.png"
+                  alt="Sehat Doc Logo"
+                  width={34}
+                  height={34}
                   style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }}
                 />
               </div>
@@ -25,26 +24,24 @@ export default function Footer() {
                 <span className="footer-logo-title">
                   SEHAT<span>DOC</span>
                 </span>
-                <span className="footer-logo-subtitle">
-                  PAKISTAN'S #1 CLINIC PLATFORM
-                </span>
+                <span className="footer-logo-subtitle">PAKISTAN&apos;S #1 CLINIC PLATFORM</span>
               </div>
             </Link>
             <p className="footer-brand-desc">
               Sehatdoc is a leading digital healthcare platform in Pakistan, connecting patients with the best certified doctors, hospitals, and laboratories for virtual and in-person medical support.
             </p>
             <div className="footer-socials">
-              <a href="#" className="footer-social-icon" aria-label="Facebook">
+              <a href="https://facebook.com" className="footer-social-icon" aria-label="Facebook" target="_blank" rel="noreferrer">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
                 </svg>
               </a>
-              <a href="#" className="footer-social-icon" aria-label="Twitter">
+              <a href="https://twitter.com" className="footer-social-icon" aria-label="Twitter" target="_blank" rel="noreferrer">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z" />
                 </svg>
               </a>
-              <a href="#" className="footer-social-icon" aria-label="Instagram">
+              <a href="https://instagram.com" className="footer-social-icon" aria-label="Instagram" target="_blank" rel="noreferrer">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
                   <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
@@ -54,31 +51,28 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Column 1: Services */}
           <div>
             <h4 className="footer-nav-title">Services</h4>
             <ul className="footer-links">
-              <li><Link href="#" className="footer-link">Find a Doctor</Link></li>
-              <li><Link href="#" className="footer-link">Online Consultation</Link></li>
-              <li><Link href="#" className="footer-link">Book Lab Tests</Link></li>
-              <li><Link href="#" className="footer-link">Hospitals List</Link></li>
-              <li><Link href="#" className="footer-link">Order Medicine</Link></li>
+              <li><Link href="/doctors" className="footer-link">Find a Doctor</Link></li>
+              <li><Link href="/consult" className="footer-link">Online Consultation</Link></li>
+              <li><Link href="/labs" className="footer-link">Book Lab Tests</Link></li>
+              <li><Link href="/hospitals" className="footer-link">Hospitals List</Link></li>
+              <li><Link href="/medicines" className="footer-link">Order Medicine</Link></li>
             </ul>
           </div>
 
-          {/* Column 2: Popular Cities */}
           <div>
             <h4 className="footer-nav-title">Popular Cities</h4>
             <ul className="footer-links">
-              <li><Link href="#" className="footer-link">Doctors in Lahore</Link></li>
-              <li><Link href="#" className="footer-link">Doctors in Karachi</Link></li>
-              <li><Link href="#" className="footer-link">Doctors in Islamabad</Link></li>
-              <li><Link href="#" className="footer-link">Doctors in Faisalabad</Link></li>
-              <li><Link href="#" className="footer-link">Doctors in Multan</Link></li>
+              <li><Link href="/doctors?city=lahore" className="footer-link">Doctors in Lahore</Link></li>
+              <li><Link href="/doctors?city=karachi" className="footer-link">Doctors in Karachi</Link></li>
+              <li><Link href="/doctors?city=islamabad" className="footer-link">Doctors in Islamabad</Link></li>
+              <li><Link href="/doctors?city=faisalabad" className="footer-link">Doctors in Faisalabad</Link></li>
+              <li><Link href="/doctors?city=multan" className="footer-link">Doctors in Multan</Link></li>
             </ul>
           </div>
 
-          {/* Column 3: Contact */}
           <div>
             <h4 className="footer-nav-title">Contact Us</h4>
             <div className="footer-contact-item">
@@ -107,8 +101,8 @@ export default function Footer() {
         <div className="footer-bottom">
           <p>&copy; {new Date().getFullYear()} Sehatdoc. All rights reserved.</p>
           <div style={{ display: 'flex', gap: '20px' }}>
-            <Link href="#" className="footer-link">Privacy Policy</Link>
-            <Link href="#" className="footer-link">Terms of Service</Link>
+            <Link href="/privacy" className="footer-link">Privacy Policy</Link>
+            <Link href="/terms" className="footer-link">Terms of Service</Link>
           </div>
         </div>
       </div>

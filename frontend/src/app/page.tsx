@@ -201,7 +201,7 @@ export default function Home() {
               <li><span className="bullet-arrow">&rsaquo;</span> Build your online presence with free digital market</li>
               <li><span className="bullet-arrow">&rsaquo;</span> Get your own branded software for better customer experience</li>
             </ul>
-            <Link href="/doctors/register" className="btn join-doctor-btn">Signup Now</Link>
+            <Link href="/auth/signup?role=DOCTOR" className="btn join-doctor-btn">Signup Now</Link>
           </div>
         </div>
       </section>

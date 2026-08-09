@@ -135,7 +135,7 @@ export default function Header({ selectedCity, onChangeCity }: HeaderProps) {
                   <div className="mega-menu-left">
                     <h3 className="mega-menu-heading">Choose a speciality</h3>
                     <Link href="/specialties" className="mega-menu-btn">View all speciality</Link>
-                    <Link href="/doctors/register" className="mega-menu-btn">Join as a Doctor</Link>
+                    <Link href="/auth/signup?role=DOCTOR" className="mega-menu-btn">Join as a Doctor</Link>
                   </div>
                   <div className="mega-menu-grid">
                     {specialties.map((spec) => (
@@ -169,6 +169,7 @@ export default function Header({ selectedCity, onChangeCity }: HeaderProps) {
                 <Link href="/labs">Lab Tests</Link>
                 <Link href="/medicines">Medicines</Link>
                 <Link href="/offers">Offers</Link>
+                <Link href="/auth/signup?role=HOSPITAL_ADMIN">Join as Hospital</Link>
                 <Link href="/account">My Account</Link>
               </div>
             </li>
@@ -186,17 +187,36 @@ export default function Header({ selectedCity, onChangeCity }: HeaderProps) {
 
           {isAuthenticated ? (
             <>
-              <Link href="/account" className="phone-link" style={{ marginRight: 8 }}>
-                {user?.fullName?.split(' ')[0] ?? 'Account'}
+              <Link
+                href={
+                  user?.activeRole === 'DOCTOR'
+                    ? '/portal/doctor'
+                    : user?.activeRole === 'HOSPITAL_ADMIN'
+                      ? '/portal/hospital'
+                      : '/account'
+                }
+                className="phone-link"
+                style={{ marginRight: 8 }}
+              >
+                {user?.activeRole === 'DOCTOR'
+                  ? 'Doctor Portal'
+                  : user?.activeRole === 'HOSPITAL_ADMIN'
+                    ? 'Hospital Portal'
+                    : user?.fullName?.split(' ')[0] ?? 'Account'}
               </Link>
               <button type="button" className="btn btn-outline" style={{ padding: '8px 12px' }} onClick={logout}>
                 Logout
               </button>
             </>
           ) : (
-            <Link href="/auth/login" className="btn btn-primary" style={{ padding: '8px 14px' }}>
-              Login
-            </Link>
+            <>
+              <Link href="/auth/signup" className="btn btn-outline" style={{ padding: '8px 14px' }}>
+                Sign up
+              </Link>
+              <Link href="/auth/login" className="btn btn-primary" style={{ padding: '8px 14px' }}>
+                Login
+              </Link>
+            </>
           )}
 
           <a href="tel:03107813247" className="phone-link">

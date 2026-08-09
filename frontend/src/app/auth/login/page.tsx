@@ -1,76 +1,175 @@
 'use client';
 
-import React, { Suspense, useState } from 'react';
-import Link from 'next/link';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '@/components/AppShell';
-import { Breadcrumbs, PageHeader } from '@/components/ui';
+import {
+  AuthCard,
+  AuthDemoHint,
+  AuthField,
+  AuthRoleTabs,
+  AuthSwitchLink,
+} from '@/components/AuthUI';
 import { useAuth } from '@/lib/auth-context';
+import type { AuthRoleChoice } from '@/types';
+
+function parseRole(value: string | null): AuthRoleChoice {
+  if (value === 'DOCTOR' || value === 'HOSPITAL_ADMIN' || value === 'PATIENT') return value;
+  return 'PATIENT';
+}
+
+function nextAllowedForRole(next: string, activeRole: string) {
+  if (next.startsWith('/portal/hospital')) return activeRole === 'HOSPITAL_ADMIN';
+  if (next.startsWith('/portal/doctor')) return activeRole === 'DOCTOR';
+  return true;
+}
 
 function LoginForm() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, user, isAuthenticated, authReady, homePath } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') ?? '/account';
-  const [phone, setPhone] = useState('03001234567');
+  const roleParam = parseRole(searchParams.get('role'));
+  const next = searchParams.get('next');
+
+  const [role, setRole] = useState<AuthRoleChoice>(roleParam);
+  const [phone, setPhone] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
 
-  React.useEffect(() => {
-    if (isAuthenticated) router.replace(next);
-  }, [isAuthenticated, next, router]);
+  useEffect(() => {
+    setRole(roleParam);
+  }, [roleParam]);
+
+  useEffect(() => {
+    setPhone('');
+    setOtpSent(false);
+    setOtp('');
+    setError('');
+  }, [role]);
+
+  // Already signed in → open that account's dashboard (never stay on login).
+  useEffect(() => {
+    if (!authReady || !isAuthenticated || !user) return;
+
+    if (next?.startsWith('/') && nextAllowedForRole(next, user.activeRole)) {
+      router.replace(next);
+      return;
+    }
+
+    router.replace(homePath);
+  }, [authReady, isAuthenticated, user, next, homePath, router]);
 
   const requestOtp = () => {
     setError('');
+    if (!phone.trim()) {
+      setError('Enter your mobile number');
+      return;
+    }
     setOtpSent(true);
   };
 
   const verify = () => {
-    const result = login(phone, otp);
+    const result = login(phone, otp, role);
     if (!result.ok) {
-      setError(result.message ?? 'Login failed');
+      setError(result.message || 'Login failed');
       return;
     }
-    router.push(next);
+    if (next?.startsWith('/') && nextAllowedForRole(next, role)) {
+      router.push(next);
+    } else if (role === 'DOCTOR') {
+      router.push('/portal/doctor');
+    } else if (role === 'HOSPITAL_ADMIN') {
+      router.push('/portal/hospital');
+    } else {
+      router.push('/account');
+    }
   };
 
-  return (
-    <div className="detail-panel form-grid" style={{ maxWidth: 480, margin: '0 auto' }}>
-      <p className="entity-card-muted">Demo OTP is always <strong>123456</strong>. Creates a mock patient session.</p>
-      <div className="form-field">
-        <label>Mobile number</label>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03XXXXXXXXX" />
+  if (!authReady || isAuthenticated) {
+    return (
+      <div className="auth-loading">
+        {!authReady ? 'Loading…' : 'Opening your dashboard…'}
       </div>
+    );
+  }
+
+  return (
+    <AuthCard title="Login" subtitle="Sign in as a customer, doctor, or hospital admin.">
+      <AuthRoleTabs
+        value={role}
+        onChange={(r) => {
+          setRole(r);
+          router.replace(`/auth/login?role=${r}${next ? `&next=${encodeURIComponent(next)}` : ''}`);
+        }}
+      />
+
+      <AuthDemoHint
+        role={role}
+        onUseDemo={(demoPhone) => {
+          setPhone(demoPhone);
+          setOtpSent(false);
+          setOtp('');
+          setError('');
+        }}
+      />
+
       {!otpSent ? (
-        <button type="button" className="btn btn-primary" onClick={requestOtp}>Request OTP</button>
+        <div className="auth-form">
+          <AuthField label="Mobile number">
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="03XXXXXXXXX"
+              inputMode="tel"
+              autoComplete="tel"
+            />
+          </AuthField>
+          {error && <p className="auth-error">{error}</p>}
+          <button type="button" className="btn btn-primary btn-block" onClick={requestOtp}>
+            Request OTP
+          </button>
+        </div>
       ) : (
-        <>
-          <div className="form-field">
-            <label>OTP</label>
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="123456" />
-          </div>
-          <button type="button" className="btn btn-primary" onClick={verify}>Verify & login</button>
-        </>
+        <div className="auth-form">
+          <p className="auth-otp-sent">
+            OTP sent to <strong>{phone}</strong>
+          </p>
+          <AuthField label="Enter OTP">
+            <input
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="123456"
+              inputMode="numeric"
+              maxLength={6}
+              autoComplete="one-time-code"
+            />
+          </AuthField>
+          {error && <p className="auth-error">{error}</p>}
+          <button type="button" className="btn btn-primary btn-block" onClick={verify}>
+            Verify &amp; Login
+          </button>
+          <button type="button" className="btn btn-ghost btn-block" onClick={() => setOtpSent(false)}>
+            Change number
+          </button>
+        </div>
       )}
-      {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
-      <Link href="/" className="btn btn-outline">Back home</Link>
-    </div>
+
+      <AuthSwitchLink mode="login" />
+    </AuthCard>
   );
 }
 
 export default function LoginPage() {
   return (
     <AppShell>
-      <section className="page-section">
-        <div className="container">
-          <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Login' }]} />
-          <PageHeader title="Login with OTP" subtitle="Mirrors POST /auth/request-otp and /auth/verify-otp." />
-          <Suspense fallback={<p>Loading…</p>}>
+      <div className="auth-page">
+        <div className="auth-page-inner">
+          <Suspense fallback={<div className="auth-loading">Loading…</div>}>
             <LoginForm />
           </Suspense>
         </div>
-      </section>
+      </div>
     </AppShell>
   );
 }

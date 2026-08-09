@@ -68,7 +68,17 @@ export function getDropdownSpecialties(): Specialty[] {
 
 export function getDoctors(params: DoctorListParams = {}) {
   const { q, cityId, citySlug, specialtyId, specialtySlug, mode, page = 1, limit = 12 } = params;
-  let list = DOCTORS.filter((d) => d.verificationStatus === 'APPROVED' && d.isAcceptingPatients);
+  let list = DOCTORS.map((d) => {
+    if (typeof window === 'undefined') return d;
+    try {
+      const raw = localStorage.getItem('sehatdoc_doctor_overrides');
+      if (!raw) return d;
+      const map = JSON.parse(raw) as Record<string, Doctor>;
+      return map[d.id] ?? d;
+    } catch {
+      return d;
+    }
+  }).filter((d) => d.verificationStatus === 'APPROVED' && d.isAcceptingPatients);
 
   const resolvedCityId = cityId || (citySlug ? getCityBySlug(citySlug)?.id : undefined);
   if (resolvedCityId) list = list.filter((d) => d.cityId === resolvedCityId);
@@ -104,12 +114,23 @@ export function getDoctors(params: DoctorListParams = {}) {
 }
 
 export function getDoctorById(id: string): ApiEnvelope<Doctor | null> {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('sehatdoc_doctor_overrides');
+      if (raw) {
+        const map = JSON.parse(raw) as Record<string, Doctor>;
+        if (map[id]) return ok(map[id]);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   return ok(DOCTORS.find((d) => d.id === id) ?? null);
 }
 
 /** Generate ISO slot starts for a doctor on a YYYY-MM-DD date */
 export function getDoctorSlots(doctorId: string, date: string, mode?: AppointmentMode): ApiEnvelope<string[]> {
-  const doctor = DOCTORS.find((d) => d.id === doctorId);
+  const doctor = getDoctorById(doctorId).data;
   if (!doctor?.availabilities) return ok([]);
 
   const day = new Date(`${date}T12:00:00`);
@@ -154,7 +175,17 @@ export function getDoctorSlots(doctorId: string, date: string, mode?: Appointmen
 
 export function getHospitals(params: HospitalListParams = {}) {
   const { q, cityId, citySlug, page = 1, limit = 12 } = params;
-  let list = HOSPITALS.filter((h) => h.isActive && h.verificationStatus === 'APPROVED');
+  let list = HOSPITALS.map((h) => {
+    if (typeof window === 'undefined') return h;
+    try {
+      const raw = localStorage.getItem('sehatdoc_hospital_overrides');
+      if (!raw) return h;
+      const map = JSON.parse(raw) as Record<string, Hospital>;
+      return map[h.id] ?? h;
+    } catch {
+      return h;
+    }
+  }).filter((h) => h.isActive && h.verificationStatus === 'APPROVED');
   const resolvedCityId = cityId || (citySlug ? getCityBySlug(citySlug)?.id : undefined);
   if (resolvedCityId) list = list.filter((h) => h.cityId === resolvedCityId);
   if (q) {
@@ -171,6 +202,17 @@ export function getHospitals(params: HospitalListParams = {}) {
 }
 
 export function getHospitalById(id: string): ApiEnvelope<Hospital | null> {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('sehatdoc_hospital_overrides');
+      if (raw) {
+        const map = JSON.parse(raw) as Record<string, Hospital>;
+        if (map[id]) return ok(map[id]);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   return ok(HOSPITALS.find((h) => h.id === id) ?? null);
 }
 

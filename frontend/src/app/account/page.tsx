@@ -9,7 +9,7 @@ import { getPatientMe } from '@/data';
 import { useAuth } from '@/lib/auth-context';
 
 export default function AccountPage() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, logout, homePath } = useAuth();
   const router = useRouter();
   const patient = getPatientMe().data;
 
@@ -19,7 +19,20 @@ export default function AccountPage() {
         <section className="page-section">
           <div className="container" style={{ maxWidth: 560 }}>
             <PageHeader title="My Account" subtitle="Login to view your profile and appointments." />
-            <Link href="/auth/login?next=/account" className="btn btn-primary">Login</Link>
+            <Link href="/auth/login?role=PATIENT&next=/account" className="btn btn-primary">Login</Link>
+          </div>
+        </section>
+      </AppShell>
+    );
+  }
+
+  if (user?.activeRole === 'DOCTOR' || user?.activeRole === 'HOSPITAL_ADMIN') {
+    return (
+      <AppShell>
+        <section className="page-section">
+          <div className="container" style={{ maxWidth: 560 }}>
+            <PageHeader title="Customer account" subtitle="You are logged in as a provider. Open your portal instead." />
+            <Link href={homePath} className="btn btn-primary">Go to portal</Link>
           </div>
         </section>
       </AppShell>

@@ -116,6 +116,18 @@ export interface DoctorClinic {
   area?: Area | null;
 }
 
+export type DocumentType =
+  | 'PMC_CERTIFICATE'
+  | 'CNIC_FRONT'
+  | 'CNIC_BACK'
+  | 'DEGREE'
+  | 'EXPERIENCE_LETTER'
+  | 'HOSPITAL_LICENSE'
+  | 'LAB_LICENSE'
+  | 'OTHER';
+
+export type DocumentStatus = 'UPLOADED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+
 export interface DoctorEducation {
   id: string;
   doctorId: string;
@@ -141,6 +153,19 @@ export interface DoctorLanguage {
   id: string;
   doctorId: string;
   language: string;
+}
+
+export interface DoctorDocument {
+  id: string;
+  doctorId: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DoctorAvailability {
@@ -181,6 +206,7 @@ export interface Doctor {
   educations?: DoctorEducation[];
   experiences?: DoctorExperience[];
   languages?: DoctorLanguage[];
+  documents?: DoctorDocument[];
 }
 
 export interface HospitalFacility {
@@ -430,10 +456,15 @@ export interface SessionUser {
   phone: string;
   fullName: string;
   roles: AppRole[];
+  activeRole: AppRole;
   accessToken: string;
   refreshToken: string;
-  patientId: string;
+  patientId?: string;
+  doctorId?: string;
+  hospitalId?: string;
 }
+
+export type AuthRoleChoice = 'PATIENT' | 'DOCTOR' | 'HOSPITAL_ADMIN';
 
 export interface DoctorListParams {
   q?: string;
